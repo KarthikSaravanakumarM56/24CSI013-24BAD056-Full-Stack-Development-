@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Contact Management System</title>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            margin: 0;
+            padding: 30px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: auto;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+
+        input {
+            width: 100%;
+            padding: 10px;
+            box-sizing: border-box;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+
+        button {
+            padding: 10px 18px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 3px;
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .add-btn {
+            background: #2196f3;
+            color: white;
+        }
+
+        .edit-btn {
+            background: #ff9800;
+            color: white;
+        }
+
+        .delete-btn {
+            background: #f44336;
+            color: white;
+        }
+
+        .cancel-btn {
+            background: #777;
+            color: white;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 30px;
+        }
+
+        th, td {
+            padding: 12px;
+            border-bottom: 1px solid #ddd;
+            text-align: left;
+        }
+
+        th {
+            background: #f1f1f1;
+        }
+
+        #message {
+            margin-top: 15px;
+            font-weight: bold;
+            overflow-wrap: anywhere;
+        }
+
+        .success {
+            color: green;
+        }
+
+        .error {
+            color: red;
+        }
+
+        @media (max-width: 700px) {
+            body {
+                padding: 10px;
+            }
+
+            .container {
+                padding: 15px;
+                overflow-x: auto;
+            }
+
+            table {
+                min-width: 600px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="container">
+
+    <h1>Contact Management System</h1>
+
+    <!-- CONTACT FORM -->
+    <form id="contactForm">
+
+        <div class="form-group">
+            <label for="contactId">Contact ID</label>
+            <input
+                type="text"
+                id="contactId"
+                placeholder="Example: C001"
+                required
+            >
+        </div>
+
+        <div class="form-group">
+            <label for="name">Name</label>
+            <input
+                type="text"
+                id="name"
+                placeholder="Enter name"
+                required
+            >
+        </div>
+
+        <div class="form-group">
+            <label for="phone">Phone</label>
+            <input
+                type="text"
+                id="phone"
+                placeholder="Enter phone number"
+                required
+            >
+        </div>
+
+        <div class="form-group">
+            <label for="email">Email</label>
+            <input
+                type="email"
+                id="email"
+                placeholder="Enter email"
+                required
+            >
+        </div>
+
+        <button
+            type="submit"
+            class="add-btn"
+            id="submitButton"
+        >
+            Add Contact
+        </button>
+
+        <button
+            type="button"
+            class="cancel-btn"
+            id="cancelButton"
+            onclick="cancelEdit()"
+            style="display: none;"
+        >
+            Cancel
+        </button>
+
+    </form>
+
+    <!-- SUCCESS AND ERROR MESSAGES -->
+    <div id="message" role="status" aria-live="polite"></div>
+
+    <h2>Contact List</h2>
+
+    <!-- CONTACT TABLE -->
+    <table>
+        <thead>
+            <tr>
+                <th>Contact ID</th>
+                <th>Name</th>
+                <th>Phone</th>
+                <th>Email</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+
+        <tbody id="contactList">
+            <tr>
+                <td colspan="5" style="text-align: center;">
+                    Loading contacts...
+                </td>
+            </tr>
+        </tbody>
+    </table>
+
+</div>
+
+<script>
+
+    // Store the MongoDB ID of the contact being edited
+    let editingId = null;
+
+    // Store the message timeout
+    let messageTimeout = null;
+
+
+    // LOAD CONTACTS WHEN PAGE OPENS
+    document.addEventListener("DOMContentLoaded", function () {
+        loadContacts();
+    });
+
+
+    // SHOW SUCCESS OR ERROR MESSAGE
+    function showMessage(message, error = false) {
+
+        const messageElement = document.getElementById("message");
+
+        messageElement.textContent = message;
+
+        messageElement.className = error ? "error" : "success";
+
+        if (messageTimeout) {
+            clearTimeout(messageTimeout);
+        }
+
+        messageTimeout = setTimeout(function () {
+            messageElement.textContent = "";
+            messageElement.className = "";
+        }, 4000);
+    }
+
+
+    // READ RESPONSE SAFELY
+    async function readResponse(response) {
+
+        const text = await response.text();
+
+        let data = {};
+
+        if (text) {
+            try {
+                data = JSON.parse(text);
+            } catch (error) {
+                throw new Error(
+                    "The server returned an invalid response."
+                );
+            }
+        }
+
+        if (!response.ok) {
+            throw new Error(
+                data.message ||
+                `Request failed with status ${response.status}`
+            );
+        }
+
+        return data;
+    }
+
+
+    // CREATE / UPDATE CONTACT
+    document
+        .getElementById("contactForm")
+        .addEventListener("submit", async function (event) {
+
+            event.preventDefault();
+
+            const contactId =
+                document.getElementById("contactId").value.trim();
+
+            const name =
+                document.getElementById("name").value.trim();
+
+            const phone =
+                document.getElementById("phone").value.trim();
+
+            const email =
+                document.getElementById("email").value.trim();
+
+            const contact = {
+                contactId,
+                name,
+                phone,
+                email
+            };
+
+            const submitButton =
+                document.getElementById("submitButton");
+
+            submitButton.disabled = true;
+
+            try {
+
+                let response;
+
+                if (editingId) {
+
+                    // UPDATE EXISTING CONTACT
+                    response = await fetch(
+                        `/api/contacts/${encodeURIComponent(editingId)}`,
+                        {
+                            method: "PUT",
+                            headers: {
+                                "Content-Type": "application/json"
+                            },
+                            body: JSON.stringify({
+                                contactId,
+                                name,
+                                phone,
+                                email
+                            })
+                        }
+                    );
+
+                } else {
+
+                    // CREATE NEW CONTACT
+                    response = await fetch("/api/contacts", {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify(contact)
+                    });
+
+                }
+
+                await readResponse(response);
+
+                const wasEditing = Boolean(editingId);
+
+                resetForm();
+
+                showMessage(
+                    wasEditing
+                        ? "Contact updated successfully!"
+                        : "Contact added successfully!"
+                );
+
+                await loadContacts();
+
+            } catch (error) {
+
+                console.error("Save contact error:", error);
+
+                showMessage(error.message, true);
+
+            } finally {
+
+                submitButton.disabled = false;
+
+            }
+
+        });
+
+
+    // READ / DISPLAY ALL CONTACTS
+    async function loadContacts() {
+
+        const contactList =
+            document.getElementById("contactList");
+
+        try {
+
+            const response = await fetch("/api/contacts");
+
+            const contacts = await readResponse(response);
+
+            if (!Array.isArray(contacts)) {
+                throw new Error(
+                    "The server did not return a contact list."
+                );
+            }
+
+            contactList.innerHTML = "";
+
+            if (contacts.length === 0) {
+
+                contactList.innerHTML = `
+                    <tr>
+                        <td colspan="5" style="text-align: center;">
+                            No contacts found
+                        </td>
+                    </tr>
+                `;
+
+                return;
+
+            }
+
+            contacts.forEach(function (contact) {
+
+                const row = document.createElement("tr");
+
+                // Use textContent for contact data
+                // to avoid interpreting it as HTML.
+                [
+                    contact.contactId,
+                    contact.name,
+                    contact.phone,
+                    contact.email
+                ].forEach(function (value) {
+
+                    const cell = document.createElement("td");
+
+                    cell.textContent = value ?? "";
+
+                    row.appendChild(cell);
+
+                });
+
+                const actionsCell = document.createElement("td");
+
+                // EDIT BUTTON
+                const editButton = document.createElement("button");
+
+                editButton.type = "button";
+                editButton.className = "edit-btn";
+                editButton.textContent = "Edit";
+
+                editButton.addEventListener("click", function () {
+                    editContact(contact._id);
+                });
+
+                // DELETE BUTTON
+                const deleteButton = document.createElement("button");
+
+                deleteButton.type = "button";
+                deleteButton.className = "delete-btn";
+                deleteButton.textContent = "Delete";
+
+                deleteButton.addEventListener("click", function () {
+                    deleteContact(contact._id);
+                });
+
+                actionsCell.appendChild(editButton);
+                actionsCell.appendChild(deleteButton);
+
+                row.appendChild(actionsCell);
+
+                contactList.appendChild(row);
+
+            });
+
+        } catch (error) {
+
+            console.error("Load contacts error:", error);
+
+            contactList.innerHTML = `
+                <tr>
+                    <td colspan="5" style="text-align: center; color: red;">
+                        Failed to load contacts
+                    </td>
+                </tr>
+            `;
+
+            showMessage(error.message, true);
+
+        }
+
+    }
+
+
+    // EDIT CONTACT
+    async function editContact(id) {
+
+        try {
+
+            const response = await fetch(
+                `/api/contacts/${encodeURIComponent(id)}`
+            );
+
+            const contact = await readResponse(response);
+
+            document.getElementById("contactId").value =
+                contact.contactId ?? "";
+
+            document.getElementById("name").value =
+                contact.name ?? "";
+
+            document.getElementById("phone").value =
+                contact.phone ?? "";
+
+            document.getElementById("email").value =
+                contact.email ?? "";
+
+            editingId = id;
+
+            document.getElementById("submitButton").textContent =
+                "Update Contact";
+
+            document.getElementById("cancelButton").style.display =
+                "inline-block";
+
+            window.scrollTo({
+                top: 0,
+                behavior: "smooth"
+            });
+
+        } catch (error) {
+
+            console.error("Edit contact error:", error);
+
+            showMessage(error.message, true);
+
+        }
+
+    }
+
+
+    // DELETE CONTACT
+    async function deleteContact(id) {
+
+        if (!id) {
+            showMessage("Contact ID is missing.", true);
+            return;
+        }
+
+        const confirmDelete = confirm(
+            "Are you sure you want to delete this contact?"
+        );
+
+        if (!confirmDelete) {
+            return;
+        }
+
+        try {
+
+            console.log("Deleting contact ID:", id);
+
+            // Send DELETE request using MongoDB _id
+            const response = await fetch(
+                `/api/contacts/${encodeURIComponent(id)}`,
+                {
+                    method: "DELETE"
+                }
+            );
+
+            console.log(
+                "Delete response status:",
+                response.status
+            );
+
+            const data = await readResponse(response);
+
+            console.log("Delete response:", data);
+
+            showMessage(
+                data.message || "Contact deleted successfully!"
+            );
+
+            // Clear the form if the deleted contact
+            // was currently being edited.
+            if (editingId === id) {
+                resetForm();
+            }
+
+            // Reload the table after deletion
+            await loadContacts();
+
+        } catch (error) {
+
+            console.error("Delete contact error:", error);
+
+            showMessage(error.message, true);
+
+        }
+
+    }
+
+
+    // CANCEL EDIT
+    function cancelEdit() {
+
+        resetForm();
+
+        showMessage("Edit cancelled.");
+
+    }
+
+
+    // RESET FORM
+    function resetForm() {
+
+        document.getElementById("contactForm").reset();
+
+        editingId = null;
+
+        document.getElementById("submitButton").textContent =
+            "Add Contact";
+
+        document.getElementById("cancelButton").style.display =
+            "none";
+
+    }
+
+</script>
+
+</body>
+</html>
